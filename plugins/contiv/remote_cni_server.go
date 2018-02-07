@@ -98,33 +98,16 @@ type remoteCNIserver struct {
 	// this node's main IP address
 	nodeIP string
 
+	// global configuration
+	config *Config
+
 	// node specific configuration
 	nodeConfig *OneNodeConfig
-
-	// other configuration
-	tcpChecksumOffloadDisabled bool
 
 	// the variables ensures that add/del requests are processed
 	// only when vswitch connectivity is configured
 	vswitchConnectivityConfigured bool
 	vswitchCond                   *sync.Cond
-
-	// if the flag is true only veth without stn and tcp stack is configured
-	disableTCPstack bool
-
-	// if the flag is true, TAP interfaces are used instead of VETHs for VPP-Pod
-	// interconnection.
-	useTAPInterfaces bool
-
-	// version of the TAP interface to use (if useTAPInterfaces==true)
-	tapVersion uint8
-
-	// Rx/Tx ring size for TAPv2
-	tapV2RxRingSize uint16
-	tapV2TxRingSize uint16
-
-	// use pure L2 node interconnect instead of VXLANs
-	useL2Interconnect bool
 
 	// bridge domain used for VXLAN tunnels
 	vxlanBD *vpp_l2.BridgeDomains_BridgeDomain
@@ -167,23 +150,17 @@ func newRemoteCNIServer(logger logging.Logger, vppTxnFactory func() linux.DataCh
 		return nil, err
 	}
 	server := &remoteCNIserver{
-		Logger:                     logger,
-		vppTxnFactory:              vppTxnFactory,
-		proxy:                      proxy,
-		configuredContainers:       configuredContainers,
-		govppChan:                  govppChan,
-		swIfIndex:                  index,
-		agentLabel:                 agentLabel,
-		nodeID:                     nodeID,
-		ipam:                       ipam,
-		nodeConfig:                 nodeConfig,
-		tcpChecksumOffloadDisabled: config.TCPChecksumOffloadDisabled,
-		useTAPInterfaces:           config.UseTAPInterfaces,
-		tapVersion:                 config.TAPInterfaceVersion,
-		tapV2RxRingSize:            config.TAPv2RxRingSize,
-		tapV2TxRingSize:            config.TAPv2TxRingSize,
-		disableTCPstack:            config.TCPstackDisabled,
-		useL2Interconnect:          config.UseL2Interconnect,
+		Logger:               logger,
+		vppTxnFactory:        vppTxnFactory,
+		proxy:                proxy,
+		configuredContainers: configuredContainers,
+		govppChan:            govppChan,
+		swIfIndex:            index,
+		agentLabel:           agentLabel,
+		nodeID:               nodeID,
+		ipam:                 ipam,
+		config:               config,
+		nodeConfig:           nodeConfig,
 	}
 	server.vswitchCond = sync.NewCond(&server.Mutex)
 	return server, nil
@@ -256,7 +233,7 @@ func (s *remoteCNIserver) configureVswitchConnectivity() error {
 		return err
 	}
 
-	if !s.useL2Interconnect {
+	if !s.config.UseL2Interconnect {
 		// configure VXLAN tunnel bridge domain
 		err = s.configureVswitchVxlanBridgeDomain(config)
 		if err != nil {
@@ -424,7 +401,7 @@ func (s *remoteCNIserver) configureOtherVPPInterfaces(config *vswitchConfig, nod
 func (s *remoteCNIserver) configureVswitchHostConnectivity(config *vswitchConfig) error {
 	txn1 := s.vppTxnFactory().Put()
 
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		// TAP interface
 		config.tapHost = s.interconnectTap()
 
@@ -451,7 +428,7 @@ func (s *remoteCNIserver) configureVswitchHostConnectivity(config *vswitchConfig
 	}
 
 	// finish TAP configuration
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		// TODO: this is not persisted, will not work in resync case!
 		err = s.configureInterfconnectHostTap()
 		if err != nil {
@@ -490,7 +467,7 @@ func (s *remoteCNIserver) configureVswitchHostConnectivity(config *vswitchConfig
 	txn2.LinuxRoute(config.routeForServices)
 
 	// enable L4 features
-	config.l4Features = s.l4Features(!s.disableTCPstack)
+	config.l4Features = s.l4Features(!s.config.TCPstackDisabled)
 	txn2.L4Features(config.l4Features)
 
 	// execute the config transaction
@@ -547,13 +524,13 @@ func (s *remoteCNIserver) persistVswitchConfig(config *vswitchConfig) error {
 	}
 
 	// VXLAN-related data
-	if !s.useL2Interconnect {
+	if !s.config.UseL2Interconnect {
 		changes[vpp_intf.InterfaceKey(config.vxlanBVI.Name)] = config.vxlanBVI
 		changes[vpp_l2.BridgeDomainKey(config.vxlanBD.Name)] = config.vxlanBD
 	}
 
 	// TAP / veths + AF_APCKET
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		changes[vpp_intf.InterfaceKey(config.tapHost.Name)] = config.tapHost
 	} else {
 		changes[linux_intf.InterfaceKey(config.vethHost.Name)] = config.vethHost
@@ -588,7 +565,7 @@ func (s *remoteCNIserver) cleanupVswitchConnectivity() {
 	txn := s.vppTxnFactory().Delete()
 
 	// unconfigure VPP-host interconnect interfaces
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		tapHost := s.interconnectTap()
 
 		txn.VppInterface(tapHost.Name)
@@ -748,16 +725,16 @@ func (s *remoteCNIserver) configurePodInterface(request *cni.CNIRequest, podIP n
 	podIfName := ""
 
 	// create VPP to POD interconnect interface
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		// TAP interface
-		config.VppIf = s.tapFromRequest(request, !s.disableTCPstack, podIPCIDR)
+		config.VppIf = s.tapFromRequest(request, !s.config.TCPstackDisabled, podIPCIDR)
 
 		txn1.VppInterface(config.VppIf)
 	} else {
 		// veth pair + AF_PACKET
 		config.Veth1 = s.veth1FromRequest(request, podIPCIDR)
 		config.Veth2 = s.veth2FromRequest(request)
-		config.VppIf = s.afpacketFromRequest(request, !s.disableTCPstack, podIPCIDR)
+		config.VppIf = s.afpacketFromRequest(request, !s.config.TCPstackDisabled, podIPCIDR)
 
 		txn1.LinuxInterface(config.Veth1).
 			LinuxInterface(config.Veth2).
@@ -765,7 +742,7 @@ func (s *remoteCNIserver) configurePodInterface(request *cni.CNIRequest, podIP n
 		podIfName = config.Veth1.Name
 	}
 
-	if !s.useTAPInterfaces {
+	if !s.config.UseTAPInterfaces {
 		// TODO: temporary bypass this section for TAP interfaces, configured in configureHostTAP
 
 		// link scope route - must be added before the default route
@@ -785,7 +762,7 @@ func (s *remoteCNIserver) configurePodInterface(request *cni.CNIRequest, podIP n
 	}
 
 	// finish the TAP interface configuration (rename, move to proper namespace, etc.)
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		err = s.configureHostTAP(request, podIPNet, config.VppIf.PhysAddress)
 		// TODO: not stored in config, this will not be resynced in case of resync!!!
 		if err != nil {
@@ -797,7 +774,7 @@ func (s *remoteCNIserver) configurePodInterface(request *cni.CNIRequest, podIP n
 		}
 	}
 
-	if !s.useTAPInterfaces {
+	if !s.config.UseTAPInterfaces {
 		// TODO: temporary bypass this section for TAP interfaces, configured in configureHostTAP
 
 		// prepare the config transaction 2
@@ -828,12 +805,12 @@ func (s *remoteCNIserver) unconfigurePodInterface(request *cni.CNIRequest, confi
 
 	// delete VPP to POD interconnect interface
 	txn2.VppInterface(config.VppIf.Name)
-	if !s.useTAPInterfaces {
+	if !s.config.UseTAPInterfaces {
 		txn2.LinuxInterface(config.Veth1.Name).
 			LinuxInterface(config.Veth2.Name)
 	}
 
-	if !s.useTAPInterfaces && !s.test {
+	if !s.config.UseTAPInterfaces && !s.test {
 		// TODO: temporary bypass this section for TAP interfaces
 
 		// delete static routes
@@ -852,7 +829,7 @@ func (s *remoteCNIserver) unconfigurePodInterface(request *cni.CNIRequest, confi
 	}
 
 	// delete the TAP interface from the host stack
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		err = s.unconfigureHostTAP(request)
 		// TODO: not stored in config, this will not be resynced in case of resync!!!
 		if err != nil {
@@ -871,7 +848,7 @@ func (s *remoteCNIserver) configurePodVPPSide(request *cni.CNIRequest, podIP net
 	// prepare the config transaction
 	txn := s.vppTxnFactory().Put()
 
-	if !s.disableTCPstack {
+	if !s.config.TCPstackDisabled {
 		// VPP TCP stack config
 		config.Loopback = s.loopbackFromRequest(request, podIP.String())
 		config.AppNamespace = s.appNamespaceFromRequest(request)
@@ -899,7 +876,7 @@ func (s *remoteCNIserver) configurePodVPPSide(request *cni.CNIRequest, podIP net
 	}
 
 	// if requested, disable TCP checksum offload on the eth0 veth/TAP interface in the container.
-	if s.tcpChecksumOffloadDisabled {
+	if s.config.TCPChecksumOffloadDisabled {
 		err = s.disableTCPChecksumOffload(request)
 		if err != nil {
 			s.Logger.Error(err)
@@ -916,7 +893,7 @@ func (s *remoteCNIserver) unconfigurePodVPPSide(config *containeridx.Config) err
 	// prepare the config transaction
 	txn := s.vppTxnFactory().Delete()
 
-	if !s.disableTCPstack {
+	if !s.config.TCPstackDisabled {
 		// VPP TCP stack config
 		txn.VppInterface(config.Loopback.Name).
 			AppNamespace(config.AppNamespace.NamespaceId).
@@ -946,7 +923,7 @@ func (s *remoteCNIserver) persistPodConfig(config *containeridx.Config) error {
 
 	// POD interface configuration
 	changes[vpp_intf.InterfaceKey(config.VppIf.Name)] = config.VppIf
-	if !s.useTAPInterfaces {
+	if !s.config.UseTAPInterfaces {
 		changes[linux_intf.InterfaceKey(config.Veth1.Name)] = config.Veth1
 		changes[linux_intf.InterfaceKey(config.Veth2.Name)] = config.Veth2
 
@@ -957,7 +934,7 @@ func (s *remoteCNIserver) persistPodConfig(config *containeridx.Config) error {
 	}
 
 	// VPP-side configuration
-	if !s.disableTCPstack {
+	if !s.config.TCPstackDisabled {
 		changes[vpp_intf.InterfaceKey(config.Loopback.Name)] = config.Loopback
 		changes[stn.Key(config.StnRule.RuleName)] = config.StnRule
 		changes[vpp_l4.AppNamespacesKey(config.AppNamespace.NamespaceId)] = config.AppNamespace
@@ -983,7 +960,7 @@ func (s *remoteCNIserver) deletePersistedPodConfig(config *containeridx.Config) 
 
 	// POD interface configuration
 	removedKeys = append(removedKeys, vpp_intf.InterfaceKey(config.VppIf.Name))
-	if !s.useTAPInterfaces {
+	if !s.config.UseTAPInterfaces {
 		removedKeys = append(removedKeys,
 			linux_intf.InterfaceKey(config.Veth1.Name),
 			linux_intf.InterfaceKey(config.Veth2.Name),
@@ -995,7 +972,7 @@ func (s *remoteCNIserver) deletePersistedPodConfig(config *containeridx.Config) 
 	}
 
 	// VPP-side configuration
-	if !s.disableTCPstack {
+	if !s.config.TCPstackDisabled {
 		removedKeys = append(removedKeys,
 			vpp_intf.InterfaceKey(config.Loopback.Name),
 			stn.Key(config.StnRule.RuleName),
@@ -1115,7 +1092,7 @@ func (s *remoteCNIserver) GetVxlanBVIIfName() string {
 	s.Lock()
 	defer s.Unlock()
 
-	if s.useL2Interconnect {
+	if s.config.UseL2Interconnect {
 		return ""
 	}
 

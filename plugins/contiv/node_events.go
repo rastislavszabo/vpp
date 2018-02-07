@@ -136,7 +136,7 @@ func (s *remoteCNIserver) addRoutesToNode(nodeInfo *node.NodeInfo) error {
 	hostIP := s.otherHostIP(uint8(nodeInfo.Id), nodeInfo.IpAddress)
 
 	// VXLAN tunnel
-	if !s.useL2Interconnect {
+	if !s.config.UseL2Interconnect {
 		vxlanIf, err := s.computeVxlanToHost(uint8(nodeInfo.Id), hostIP)
 		if err != nil {
 			return err
@@ -155,7 +155,7 @@ func (s *remoteCNIserver) addRoutesToNode(nodeInfo *node.NodeInfo) error {
 		vxlanNextHop net.IP
 		err          error
 	)
-	if s.useL2Interconnect {
+	if s.config.UseL2Interconnect {
 		// static route directly to other node IP
 		podsRoute, hostRoute, err = s.computeRoutesToHost(uint8(nodeInfo.Id), hostIP)
 	} else {

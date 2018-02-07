@@ -300,6 +300,11 @@ func (s *remoteCNIserver) afpacketFromRequest(request *cni.CNIRequest, configure
 	if configureContainerProxy {
 		af.ContainerIpAddress = containerProxyIP
 	}
+	if !s.config.VPPPollingMode {
+		af.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
 	return af
 }
 
@@ -314,31 +319,42 @@ func (s *remoteCNIserver) tapFromRequest(request *cni.CNIRequest, configureConta
 		IpAddresses: []string{s.ipAddrForPodVPPIf()},
 		PhysAddress: s.generateHwAddrForPodVPPIf(),
 	}
-	if s.tapVersion == 2 {
+	if s.config.TAPInterfaceVersion == 2 {
 		tap.Tap.Version = 2
-		tap.Tap.RxRingSize = uint32(s.tapV2RxRingSize)
-		tap.Tap.TxRingSize = uint32(s.tapV2TxRingSize)
+		tap.Tap.RxRingSize = uint32(s.config.TAPv2RxRingSize)
+		tap.Tap.TxRingSize = uint32(s.config.TAPv2TxRingSize)
 	}
 	if configureContainerProxy {
 		tap.ContainerIpAddress = containerProxyIP
+	}
+	if !s.config.VPPPollingMode {
+		tap.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
 	}
 	return tap
 }
 
 func (s *remoteCNIserver) loopbackFromRequest(request *cni.CNIRequest, loopIP string) *vpp_intf.Interfaces_Interface {
-	return &vpp_intf.Interfaces_Interface{
+	loop := &vpp_intf.Interfaces_Interface{
 		Name:        s.loopbackNameFromRequest(request),
 		Type:        vpp_intf.InterfaceType_SOFTWARE_LOOPBACK,
 		Enabled:     true,
 		IpAddresses: []string{loopIP},
 	}
+	if !s.config.VPPPollingMode {
+		loop.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return loop
 }
 
 func (s *remoteCNIserver) vppRouteFromRequest(request *cni.CNIRequest, podIP string) *vpp_l3.StaticRoutes_Route {
 	route := &vpp_l3.StaticRoutes_Route{
 		DstIpAddr: podIP,
 	}
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		route.OutgoingInterface = s.tapNameFromRequest(request)
 	} else {
 		route.OutgoingInterface = s.afpacketNameFromRequest(request)

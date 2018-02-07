@@ -38,7 +38,8 @@ To use the development image for testing with specific version of VPP, see
     - `TAPInterfaceVersion`: select `1` to use the standard VPP TAP interface or `2`
       for a faster, virtio-based, VPP TAPv2 interface (default);
     - `TAPv2RxRingSize`: number of entries to allocate for TAPv2 Rx ring (default is 256);
-    - `TAPv2TxRingSize`: number of entries to allocate for TAPv2 Tx ring (default is 256).
+    - `TAPv2TxRingSize`: number of entries to allocate for TAPv2 Tx ring (default is 256);
+    - `VPPPollingMode`: if true, VPP will be always polling the interfaces for the input (instead of adaptive selection between the interrupt/poll mode).
 
   * IPAM (section `IPAMConfig`)
     - `PodSubnetCIDR`: subnet used for all pods across all nodes;

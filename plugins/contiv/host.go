@@ -55,7 +55,7 @@ func (s *remoteCNIserver) routeFromHost() *linux_l3.LinuxStaticRoutes_Route {
 		DstIpAddr: s.ipam.PodSubnet().String(),
 		GwAddr:    s.ipam.VEthVPPEndIP().String(),
 	}
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		route.Interface = tapHostEndName
 	}
 	return route
@@ -74,7 +74,7 @@ func (s *remoteCNIserver) routeServicesFromHost() *linux_l3.LinuxStaticRoutes_Ro
 		DstIpAddr: s.ipam.ServiceNetwork().String(),
 		GwAddr:    s.ipam.VEthVPPEndIP().String(),
 	}
-	if s.useTAPInterfaces {
+	if s.config.UseTAPInterfaces {
 		route.Interface = tapHostEndName
 	}
 	return route
@@ -119,12 +119,16 @@ func (s *remoteCNIserver) interconnectTap() *vpp_intf.Interfaces_Interface {
 		},
 		IpAddresses: []string{s.ipam.VEthVPPEndIP().String() + "/" + strconv.Itoa(size)},
 	}
-	if s.tapVersion == 2 {
+	if s.config.TAPInterfaceVersion == 2 {
 		tap.Tap.Version = 2
-		tap.Tap.RxRingSize = uint32(s.tapV2RxRingSize)
-		tap.Tap.TxRingSize = uint32(s.tapV2TxRingSize)
+		tap.Tap.RxRingSize = uint32(s.config.TAPv2RxRingSize)
+		tap.Tap.TxRingSize = uint32(s.config.TAPv2TxRingSize)
 	}
-
+	if !s.config.VPPPollingMode {
+		tap.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
 	return tap
 }
 
@@ -165,7 +169,7 @@ func (s *remoteCNIserver) interconnectAfpacketName() string {
 
 func (s *remoteCNIserver) interconnectAfpacket() *vpp_intf.Interfaces_Interface {
 	size, _ := s.ipam.VPPHostNetwork().Mask.Size()
-	return &vpp_intf.Interfaces_Interface{
+	iface := &vpp_intf.Interfaces_Interface{
 		Name:    s.interconnectAfpacketName(),
 		Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
 		Enabled: true,
@@ -174,25 +178,42 @@ func (s *remoteCNIserver) interconnectAfpacket() *vpp_intf.Interfaces_Interface 
 		},
 		IpAddresses: []string{s.ipam.VEthVPPEndIP().String() + "/" + strconv.Itoa(size)},
 	}
+	if !s.config.VPPPollingMode {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return iface
 }
 
 func (s *remoteCNIserver) physicalInterface(name string, ipAddress string) *vpp_intf.Interfaces_Interface {
-	return &vpp_intf.Interfaces_Interface{
-		Name:    name,
-		Type:    vpp_intf.InterfaceType_ETHERNET_CSMACD,
-		Enabled: true,
-
+	iface := &vpp_intf.Interfaces_Interface{
+		Name:        name,
+		Type:        vpp_intf.InterfaceType_ETHERNET_CSMACD,
+		Enabled:     true,
 		IpAddresses: []string{ipAddress},
 	}
+	if !s.config.VPPPollingMode {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return iface
 }
 
 func (s *remoteCNIserver) physicalInterfaceLoopback(ipAddress string) *vpp_intf.Interfaces_Interface {
-	return &vpp_intf.Interfaces_Interface{
+	iface := &vpp_intf.Interfaces_Interface{
 		Name:        "loopbackNIC",
 		Type:        vpp_intf.InterfaceType_SOFTWARE_LOOPBACK,
 		Enabled:     true,
 		IpAddresses: []string{ipAddress},
 	}
+	if !s.config.VPPPollingMode {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return iface
 }
 
 func (s *remoteCNIserver) vxlanBVILoopback() (*vpp_intf.Interfaces_Interface, error) {
@@ -200,13 +221,19 @@ func (s *remoteCNIserver) vxlanBVILoopback() (*vpp_intf.Interfaces_Interface, er
 	if err != nil {
 		return nil, err
 	}
-	return &vpp_intf.Interfaces_Interface{
+	iface := &vpp_intf.Interfaces_Interface{
 		Name:        "vxlanBVI",
 		Type:        vpp_intf.InterfaceType_SOFTWARE_LOOPBACK,
 		Enabled:     true,
 		IpAddresses: []string{vxlanIP.String()},
 		PhysAddress: s.hwAddrForVXLAN(),
-	}, nil
+	}
+	if !s.config.VPPPollingMode {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return iface, nil
 }
 
 func (s *remoteCNIserver) hwAddrForVXLAN() string {
@@ -268,7 +295,7 @@ func (s *remoteCNIserver) routeToOtherHostNetworks(destNetwork *net.IPNet, nextH
 }
 
 func (s *remoteCNIserver) computeVxlanToHost(hostID uint8, hostIP string) (*vpp_intf.Interfaces_Interface, error) {
-	return &vpp_intf.Interfaces_Interface{
+	iface := &vpp_intf.Interfaces_Interface{
 		Name:    fmt.Sprintf("vxlan%d", hostID),
 		Type:    vpp_intf.InterfaceType_VXLAN_TUNNEL,
 		Enabled: true,
@@ -277,7 +304,13 @@ func (s *remoteCNIserver) computeVxlanToHost(hostID uint8, hostIP string) (*vpp_
 			DstAddress: hostIP,
 			Vni:        vxlanVNI,
 		},
-	}, nil
+	}
+	if !s.config.VPPPollingMode {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: vpp_intf.RxModeType_ADAPTIVE,
+		}
+	}
+	return iface, nil
 }
 
 func (s *remoteCNIserver) addInterfaceToVxlanBD(bd *vpp_l2.BridgeDomains_BridgeDomain, ifName string) {

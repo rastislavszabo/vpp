@@ -77,15 +77,17 @@ type Deps struct {
 // It can be injected or loaded from external config file. Injection has priority to external config. To use external
 // config file, add `-contiv-config="<path to config>` argument when running the contiv-agent.
 type Config struct {
-	TCPChecksumOffloadDisabled bool
-	TCPstackDisabled           bool
-	UseL2Interconnect          bool
-	UseTAPInterfaces           bool
-	TAPInterfaceVersion        uint8
-	TAPv2RxRingSize            uint16
-	TAPv2TxRingSize            uint16
-	IPAMConfig                 ipam.Config
-	NodeConfig                 []OneNodeConfig
+	TCPChecksumOffloadDisabled bool   // if true, TCP checksum offload on VPP is disabled
+	TCPstackDisabled           bool   // if true, TCP stack on VPP is disabled
+	UseL2Interconnect          bool   // if true, pure L2 node interconnect is used instead of VXLANs
+	UseTAPInterfaces           bool   // if true, TAP interfaces are used for VPP-Pod interconnections instead of veths
+	TAPInterfaceVersion        uint8  // version of the TAP interface to use (if UseTAPInterfaces==true)
+	TAPv2RxRingSize            uint16 // Rx ring size for TAPv2
+	TAPv2TxRingSize            uint16 // Tx ring size for TAPv2
+	VPPPollingMode             bool   // if true, VPP will be always polling the interfaces for the input (instead of adaptive selection between the interrupt/poll mode)
+
+	IPAMConfig ipam.Config
+	NodeConfig []OneNodeConfig
 }
 
 // OneNodeConfig represents configuration for one node. It contains only settings specific to given node.
