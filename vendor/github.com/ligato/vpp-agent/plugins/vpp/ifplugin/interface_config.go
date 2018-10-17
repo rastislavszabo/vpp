@@ -187,7 +187,16 @@ func (c *InterfaceConfigurator) ConfigureVPPInterface(iface *intf.Interfaces_Int
 		var exists bool
 		if ifIdx, _, exists = c.swIfIndexes.LookupIdx(iface.Name); !exists {
 			c.log.Warnf("It is not yet supported to add (whitelist) a new physical interface")
-			return nil
+			// TODO
+			ifMap, _ := c.ifHandler.DumpInterfaces()
+			for k, i := range ifMap {
+				if i.Interface.Name == iface.Name {
+					c.log.Infof("Found interface %s idx %d", iface.Name, k)
+					ifIdx = k
+					break
+				}
+			}
+			//return nil
 		}
 	case intf.InterfaceType_AF_PACKET_INTERFACE:
 		var pending bool

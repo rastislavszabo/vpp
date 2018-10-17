@@ -414,6 +414,15 @@ func (s *remoteCNIserver) configureVswitchNICs(config *vswitchConfig) error {
 		// use name as as specified in node config YAML
 		nicName = s.nodeConfig.MainVPPInterface.InterfaceName
 		s.Logger.Debugf("Physical NIC name taken from nodeConfig: %v ", nicName)
+
+		if strings.HasPrefix(nicName, "vmxnet3-") {
+			// create the vmxnet interface on VPP
+			err := s.createVmxnet3Interface(nicName)
+			if err != nil {
+				s.Logger.Errorf("Unable to create vmxnet3 interface: %v", err)
+				return err
+			}
+		}
 	}
 
 	if nicName == "" {

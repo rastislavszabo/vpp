@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:generate binapi-generator --input-file=/usr/share/vpp/api/vmxnet3.api.json --output-dir=./bin_api
+
 package contiv
 
 import (
@@ -33,6 +35,7 @@ import (
 	vpp_l3 "github.com/ligato/vpp-agent/plugins/vpp/model/l3"
 	vpp_l4 "github.com/ligato/vpp-agent/plugins/vpp/model/l4"
 
+	"github.com/contiv/vpp/plugins/contiv/bin_api/vmxnet3"
 	"github.com/vishvananda/netlink"
 )
 
@@ -560,4 +563,54 @@ func (s *remoteCNIserver) dropRoute(vrfID uint32, dstAddr *net.IPNet) *vpp_l3.St
 		VrfId:     vrfID,
 	}
 
+}
+
+func (s *remoteCNIserver) createVmxnet3Interface(ifName string) error {
+	pciNum, pciStr, err := vmxnet3IfNameToPCI(ifName)
+	if err != nil {
+		s.Logger.Error("Unable to parse PCI address from the interface name %s:", ifName, err)
+		return err
+	}
+
+	s.Logger.Infof("Creating vmxnet3 interface %s with PCI address %s", ifName, pciStr)
+
+	req := &vmxnet3.Vmxnet3Create{
+		PciAddr: pciNum,
+	}
+	reply := &vmxnet3.Vmxnet3CreateReply{}
+
+	err = s.govppChan.SendRequest(req).ReceiveReply(reply)
+	if err != nil {
+		s.Logger.Error("Error by creating vmxnet3 interface:", err)
+		return err
+	}
+
+	return nil
+}
+
+func vmxnet3IfNameToPCI(ifName string) (pciNum uint32, pciStr string, err error) {
+	var d, b, s, f uint32
+
+	num, err := fmt.Sscanf(ifName, "vmxnet3-%x/%x/%x/%x", &d, &b, &s, &f)
+	if err != nil {
+		err = fmt.Errorf("unable to parse PCI address from interface name: %v", err)
+		return
+	}
+	if num != 4 {
+		err = fmt.Errorf("unable to parse PCI address from interface name: not enough address elements")
+		return
+	}
+
+	pciNum |= d << 16
+	pciNum |= b << 8
+	pciNum |= s << 3
+	pciNum |= f
+
+	// endianity magic
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, pciNum)
+	pciNum = binary.BigEndian.Uint32(buf)
+
+	pciStr = fmt.Sprintf("%04x:%02x:%02x.%x", d, b, s, f)
+	return
 }
