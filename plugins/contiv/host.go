@@ -180,7 +180,11 @@ func (s *remoteCNIserver) interconnectTap() *vpp_intf.Interfaces_Interface {
 		tap.Tap.RxRingSize = uint32(s.tapV2RxRingSize)
 		tap.Tap.TxRingSize = uint32(s.tapV2TxRingSize)
 	}
-
+	if s.GetInterfaceRxMode() != vpp_intf.RxModeType_POLLING {
+		tap.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: s.GetInterfaceRxMode(),
+		}
+	}
 	return tap
 }
 
@@ -230,7 +234,7 @@ func (s *remoteCNIserver) interconnectAfpacketName() string {
 
 func (s *remoteCNIserver) interconnectAfpacket() *vpp_intf.Interfaces_Interface {
 	size, _ := s.ipam.VPPHostNetwork().Mask.Size()
-	return &vpp_intf.Interfaces_Interface{
+	af := &vpp_intf.Interfaces_Interface{
 		Name:    s.interconnectAfpacketName(),
 		Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
 		Mtu:     s.config.MTUSize,
@@ -241,16 +245,28 @@ func (s *remoteCNIserver) interconnectAfpacket() *vpp_intf.Interfaces_Interface 
 		},
 		IpAddresses: []string{s.ipam.VEthVPPEndIP().String() + "/" + strconv.Itoa(size)},
 	}
+	if s.GetInterfaceRxMode() != vpp_intf.RxModeType_POLLING {
+		af.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: s.GetInterfaceRxMode(),
+		}
+	}
+	return af
 }
 
 func (s *remoteCNIserver) physicalInterface(name string, ipAddress string) *vpp_intf.Interfaces_Interface {
-	return &vpp_intf.Interfaces_Interface{
+	iface := &vpp_intf.Interfaces_Interface{
 		Name:        name,
 		Type:        vpp_intf.InterfaceType_ETHERNET_CSMACD,
 		Enabled:     true,
 		Vrf:         s.GetMainVrfID(),
 		IpAddresses: []string{ipAddress},
 	}
+	if s.GetInterfaceRxMode() != vpp_intf.RxModeType_POLLING {
+		iface.RxModeSettings = &vpp_intf.Interfaces_Interface_RxModeSettings{
+			RxMode: s.GetInterfaceRxMode(),
+		}
+	}
+	return iface
 }
 
 func (s *remoteCNIserver) physicalInterfaceLoopback(ipAddress string) *vpp_intf.Interfaces_Interface {
@@ -563,6 +579,17 @@ func (s *remoteCNIserver) dropRoute(vrfID uint32, dstAddr *net.IPNet) *vpp_l3.St
 		VrfId:     vrfID,
 	}
 
+}
+
+func (s *remoteCNIserver) GetInterfaceRxMode() vpp_intf.RxModeType {
+	switch s.config.InterfaceRxMode {
+	case "interrupt":
+		return vpp_intf.RxModeType_INTERRUPT
+	case "adaptive":
+		return vpp_intf.RxModeType_ADAPTIVE
+	default:
+		return vpp_intf.RxModeType_POLLING
+	}
 }
 
 func (s *remoteCNIserver) createVmxnet3Interface(ifName string) error {
