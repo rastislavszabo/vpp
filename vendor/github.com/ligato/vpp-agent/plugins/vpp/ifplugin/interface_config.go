@@ -348,9 +348,9 @@ func (c *InterfaceConfigurator) configRxModeForInterface(iface *intf.Interfaces_
 	if rxModeSettings != nil {
 		switch iface.Type {
 		case intf.InterfaceType_ETHERNET_CSMACD:
-			if rxModeSettings.RxMode == intf.RxModeType_POLLING {
-				return c.configRxMode(iface, ifIdx, rxModeSettings)
-			}
+			//if rxModeSettings.RxMode == intf.RxModeType_POLLING {
+			return c.configRxMode(iface, ifIdx, rxModeSettings)
+			//}
 		default:
 			return c.configRxMode(iface, ifIdx, rxModeSettings)
 		}
