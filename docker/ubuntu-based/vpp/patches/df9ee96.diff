@@ -1,0 +1,76 @@
+From df9ee96234fce367e967385d7af676db51afa3c2 Mon Sep 17 00:00:00 2001
+From: Andrew Yourtchenko <ayourtch@gmail.com>
+Date: Wed, 24 Oct 2018 12:23:00 +0200
+Subject: [PATCH] DEBUG-HACK: make the checksum-offloaded (due to enabling GSO) path work
+
+Appears NAT does not look at VNET_BUFFER_F_OFFLOAD_TCP_CKSUM flag and modifies
+the checksum in flight. So, it becomes non-zero, and the calculation routine
+takes this value into consideration, resulting in invalid checksum.
+
+This is just to demonstrate the issue. Not sure what the solution is to be.
+
+Reproduction scenario:
+
+0. patch https://gerrit.fd.io/r/#/c/15052/
+
+1. create the startup config as follows:
+
+$ cat ~/nat-startup-conf
+unix { interactive cli-listen /run/vpp/cli.sock gid 1000 }
+nat { endpoint-dependent }
+
+2. create two linux net namespaces
+
+sudo ip netns add vpp1
+sudo ip netns add vpp2
+
+3. launch VPP with this startup config, and paste the following at debug CLI:
+
+create tap id 1 hw-addr 00:fe:00:00:00:01 rx-ring-size 1024 tx-ring-size 1024 host-ns vpp1 host-ip4-addr 10.1.1.132/24 host-ip4-gw 10.1.1.254 host-if-name vpp
+create tap id 2 hw-addr 00:fe:00:00:00:02 rx-ring-size 1024 tx-ring-size 1024 host-ns vpp2 host-ip4-addr 192.168.242.10/24 host-ip4-gw 192.168.242.254 host-if-name vpp
+set int state tap1 up
+set int state tap2 up
+set int ip address tap1 10.1.1.254/24
+set int ip address tap2 192.168.242.254/24
+
+nat44 add static mapping tcp local 192.168.242.10 6443 external 10.96.0.1 443 self-twice-nat out2in-only
+set interface nat44 out tap1
+set interface nat44 in tap2
+
+set tap gso tap1 enable
+set tap gso tap2 enable
+trace add virtio-input 50
+
+4. launch tcpdump on the receiving end
+
+sudo ip netns exec vpp2 tcpdump -ln -v -v
+
+5. launch netcat testing this path:
+
+sudo ip netns exec vpp1 nc 10.96.0.1 443
+
+Without this patch, you will see the invalid checksum being sent by VPP.
+With the patch the checksum is correct.
+In the trace we can see the checksum being zeroed out on reception and the checksum offload flag present.
+
+Change-Id: Ia9d2e48e93a6e615d43bef56b3ea67adc0fea3bc
+Signed-off-by: Andrew Yourtchenko <ayourtch@gmail.com>
+---
+
+diff --git a/src/vnet/interface_output.c b/src/vnet/interface_output.c
+index 903378b..f29947b 100644
+--- a/src/vnet/interface_output.c
++++ b/src/vnet/interface_output.c
+@@ -193,8 +193,11 @@
+       ip4 = (ip4_header_t *) (b->data + vnet_buffer (b)->l3_hdr_offset);
+       if (b->flags & VNET_BUFFER_F_OFFLOAD_IP_CKSUM)
+ 	ip4->checksum = ip4_header_checksum (ip4);
+-      if (b->flags & VNET_BUFFER_F_OFFLOAD_TCP_CKSUM)
++      if (b->flags & VNET_BUFFER_F_OFFLOAD_TCP_CKSUM) {
++        /* Some features touch the checksum even if VNET_BUFFER_F_OFFLOAD_TCP_CKSUM is set... tsk tsk tsk... */
++	th->checksum = 0;
+ 	th->checksum = ip4_tcp_udp_compute_checksum (vm, b, ip4);
++      }
+       if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM)
+ 	uh->checksum = ip4_tcp_udp_compute_checksum (vm, b, ip4);
+     }

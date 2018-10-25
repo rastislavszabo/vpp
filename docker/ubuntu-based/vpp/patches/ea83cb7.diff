@@ -1,0 +1,29 @@
+From ea83cb7e872a899f1b473724810029da17d3b2cd Mon Sep 17 00:00:00 2001
+From: Andrew Yourtchenko <ayourtch@gmail.com>
+Date: Wed, 24 Oct 2018 12:51:43 +0200
+Subject: [PATCH] acl-plugin: "show acl-plugin acl" ACE# is truncated to 4 digits in output
+
+I was expecting "%4d" format string to exhibit the same behavior as
+the one in C standard library, but rather than specifying _minimal_
+width and expanding as necessary, it actually truncates the output.
+
+Changing that to "%9d" should take care of pushing this surprising
+difference in behavior into the domain of impossible.
+
+Change-Id: Ia687137ca765bf9c1575af998ff11314010e81ad
+Signed-off-by: Andrew Yourtchenko <ayourtch@gmail.com>
+---
+
+diff --git a/src/plugins/acl/acl.c b/src/plugins/acl/acl.c
+index 2af2d7a..89c6693 100644
+--- a/src/plugins/acl/acl.c
++++ b/src/plugins/acl/acl.c
+@@ -266,7 +266,7 @@
+   for (j = 0; j < am->acls[acl_index].count; j++)
+     {
+       r = &am->acls[acl_index].rules[j];
+-      out0 = format (out0, "  %4d: %s ", j, r->is_ipv6 ? "ipv6" : "ipv4");
++      out0 = format (out0, "  %9d: %s ", j, r->is_ipv6 ? "ipv6" : "ipv4");
+       out0 = format_acl_action (out0, r->is_permit);
+       out0 = format (out0, " src %U/%d", format_ip46_address, &r->src,
+ 		     r->is_ipv6 ? IP46_TYPE_IP6 : IP46_TYPE_IP4,

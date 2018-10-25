@@ -1113,6 +1113,12 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 		}
 	}
 
+	// TODO: enable GSO
+	if idx, _, found := s.swIfIndex.LookupIdx(config.VppIf.Name); found {
+		s.Logger.Infof("Enabling GSO on the interface %s", config.VppIf.Name)
+		s.executeDebugCLI(fmt.Sprintf("set tap gso sw_if_index %d enable", idx))
+	}
+
 	// verify that the POD has the allocated IP address configured / wait until it is actually configured
 	err = s.verifyPodIP(request.NetworkNamespace, request.InterfaceName, podIP)
 	if err != nil {
