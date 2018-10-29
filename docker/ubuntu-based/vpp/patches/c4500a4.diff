@@ -1,4 +1,4 @@
-From df9ee96234fce367e967385d7af676db51afa3c2 Mon Sep 17 00:00:00 2001
+From c4500a463d7a3f2c7f634ffa1a5ac51091a502f0 Mon Sep 17 00:00:00 2001
 From: Andrew Yourtchenko <ayourtch@gmail.com>
 Date: Wed, 24 Oct 2018 12:23:00 +0200
 Subject: [PATCH] DEBUG-HACK: make the checksum-offloaded (due to enabling GSO) path work
@@ -58,10 +58,10 @@ Signed-off-by: Andrew Yourtchenko <ayourtch@gmail.com>
 ---
 
 diff --git a/src/vnet/interface_output.c b/src/vnet/interface_output.c
-index 903378b..f29947b 100644
+index 903378b..82d0a91 100644
 --- a/src/vnet/interface_output.c
 +++ b/src/vnet/interface_output.c
-@@ -193,8 +193,11 @@
+@@ -193,18 +193,27 @@
        ip4 = (ip4_header_t *) (b->data + vnet_buffer (b)->l3_hdr_offset);
        if (b->flags & VNET_BUFFER_F_OFFLOAD_IP_CKSUM)
  	ip4->checksum = ip4_header_checksum (ip4);
@@ -70,7 +70,26 @@ index 903378b..f29947b 100644
 +        /* Some features touch the checksum even if VNET_BUFFER_F_OFFLOAD_TCP_CKSUM is set... tsk tsk tsk... */
 +	th->checksum = 0;
  	th->checksum = ip4_tcp_udp_compute_checksum (vm, b, ip4);
+-      if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM)
 +      }
-       if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM)
++      if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM) {
++	uh->checksum = 0;
  	uh->checksum = ip4_tcp_udp_compute_checksum (vm, b, ip4);
++      }
      }
+   if (is_ip6)
+     {
+       int bogus;
+-      if (b->flags & VNET_BUFFER_F_OFFLOAD_TCP_CKSUM)
++      if (b->flags & VNET_BUFFER_F_OFFLOAD_TCP_CKSUM) {
++	th->checksum = 0;
+ 	th->checksum = ip6_tcp_udp_icmp_compute_checksum (vm, b, ip6, &bogus);
+-      if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM)
++      }
++      if (b->flags & VNET_BUFFER_F_OFFLOAD_UDP_CKSUM) {
++	uh->checksum = 0;
+ 	uh->checksum = ip6_tcp_udp_icmp_compute_checksum (vm, b, ip6, &bogus);
++      }
+     }
+ 
+   b->flags &= ~VNET_BUFFER_F_OFFLOAD_TCP_CKSUM;
