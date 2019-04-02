@@ -11,9 +11,16 @@ git:
 go:
   - 1.11.x
 
+addons:
+  sonarcloud:
+    organization: "rastislavszabo-github"
+    token:
+      secure: "dYygCo9VeEPHT73k5EYkO3gE4xa8CBv+GJ6u042UPI+DEpxhT5JCtqr7gxjAAlQFbMEYMxMDU9h7s0F1auJg8gQF/j6HTsUfz5r3R5D63tmkTrRzUiC81qvlmru2EnvpEznxbyTZIHs64fWKf8EEXoIp2pzaEVIMY+BXrkaWq/ZoVrTnv4A6V+ftYodkdu8Bys0kFaD9+HJ6i1ahcZqoARA035xxeA4QEq3LhmZVcEAchL+JzqvM/ayDgwUkpBxx9qZopE6s98qkIpVlyGYXKOf+9x7SHHrjsDISaDj2S4kilVKWWTKWh8OGthx2y3qWYVR6lqvhQivvXPmkG2EaPeMO3eciZV/9scBCuLSfsJbxz4hQpJ5R5cUzzncoZDnRGOuEy59jkJkW4vMcCSkqndDt/HfY5AKclDLjmbEOdKgt9vCnGn4FxzVlyF94mCA41uC0QD+n24BSEjHJeh6dJiulgFmz4v42vokBD9toPDgAak5iJD2RDGLDIh/TtUcaGjoTGESRBtdIcQR1WFVadwOFgbItWGVPqzs5W2DU9fwmSRQ7hBkyBdW2EGFAaswBYnTJdXIjMujili0PaBgouQctGHOh44qDpwLLiaqhEWegmBo1SwpfxLNyyGXGgEd3N00EFSS0KmBEoFnWsRJuUYhIdU3D4/zgeOEU//TV6UA="
+
 cache:
   directories:
     - $HOME/build-cache
+    - $HOME/.sonar/cache
 
 env:
   - GO_BUILD_TAGS=mockvpp
@@ -32,6 +39,7 @@ script:
   - make
   - make test-cover
   - make check-links || true
+  - sonar-scanner
 
 after_success:
   - goveralls -coverprofile=/tmp/coverage.out -service=travis-ci

@@ -12,3 +12,4 @@ ignore: |
   vendor/
   ui/node_modules/
   vagrant/calico-vpp/
+  .travis.yml
