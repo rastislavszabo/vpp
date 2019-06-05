@@ -23,6 +23,10 @@ import (
 	"strings"
 	"sync"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	k8srest "k8s.io/client-go/rest"
+
 	"github.com/apparentlymart/go-cidr/cidr"
 	cnisb "github.com/containernetworking/cni/pkg/types/current"
 	"github.com/contiv/vpp/plugins/contivconf"
@@ -575,7 +579,46 @@ func (i *IPAM) AllocatePodCustomIfIP(podID podmodel.ID, ifName, network string) 
 	i.podToIP[podID].customIfIPs[customIfID(ifName, network)] = ip
 	i.logAssignedPodIPPool()
 
+	i.updatePodCustomIfIPAnnotation(podID, ifName, network)
+
 	return ip, nil
+}
+
+func (i *IPAM) updatePodCustomIfIPAnnotation(podID podmodel.ID, ifName, network string) error {
+	config, err := k8srest.InClusterConfig()
+	if err != nil {
+		i.Log.Errorf("Unable to read k8s cluster config: %v", err)
+		return err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		i.Log.Errorf("Unable to connect to k8s API: %v", err)
+		return err
+	}
+
+	pods, err := clientset.CoreV1().Pods(podID.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		i.Log.Errorf("Unable to list pods: %v", err)
+		return err
+	}
+
+	i.Log.Infof("Found %d pods", len(pods.Items))
+
+	for _, pod := range pods.Items {
+		if pod.Namespace == podID.Namespace && pod.Name == podID.Name {
+			pod.Annotations["contivpp.io/custom-ip"] = "X.Y.Z.A"
+			_, err = clientset.CoreV1().Pods(podID.Namespace).Update(&pod)
+			if err != nil {
+				i.Log.Errorf("Unable to update pod annotation: %v", err)
+				return err
+			}
+			i.Log.Infof("Pod annotation updated %v", pod)
+			break
+		}
+	}
+
+	return err
 }
 
 // allocateExternalPodIP allocates IP address for the given pod using the external IPAM.

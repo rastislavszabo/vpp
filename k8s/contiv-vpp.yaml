@@ -344,6 +344,7 @@ spec:
           operator: Exists
       hostNetwork: true
       hostPID: true
+      serviceAccountName: contiv-crd
 
       # Init containers are executed before regular containers, must finish successfully before regular ones are started.
       initContainers:
